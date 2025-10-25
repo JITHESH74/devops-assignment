@@ -1,0 +1,41 @@
+name: Build, Test, and Deploy to Render
+
+on:
+  push:
+    branches: [ main ] # Triggers on push to main branch
+  workflow_dispatch:   # Allows you to run it manually
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t drviki-app .
+
+      - name: Run container for testing
+        run: |
+          docker run -d -p 8080:8080 --name test-app drviki-app
+          sleep 10 # Give the app time to start
+
+      - name: Test endpoint with curl
+        # Checks for the "Hello from Dr. ViKi" text
+        # The -f flag makes curl fail (exit non-zero) if it gets a 4xx or 5xx error
+        run: |
+          curl -f http://localhost:8080/ | grep "Hello from Dr. ViKi"
+          
+      - name: Stop container
+        if: always() # Always run this, even if the test step fails
+        run: docker stop test-app
+
+  trigger_deploy:
+    # This job only runs if 'build_and_test' succeeds
+    needs: build_and_test 
+    runs-on: ubuntu-latest
+    # Only run this deploy step on an actual push, not on pull requests
+    if: github.event_name == 'push'
+    steps:
+      - name: Trigger Render Deploy Hook
+        run: curl "${{ secrets.RENDER_DEPLOY_HOOK }}"
